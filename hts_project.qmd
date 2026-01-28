@@ -1,0 +1,280 @@
+---
+title: "hts"
+format: html
+editor: visual
+---
+
+## Quarto
+
+Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
+
+## DGE
+
+```{r}
+library(GEOquery)
+library(dplyr)
+
+data_whole <- getGEO("GSE152075", GSEMatrix = TRUE)
+data <- data_whole[[1]]
+metadata <- pData(data)
+
+metadata2 <- metadata %>%
+  transmute(
+    TITLE = title,
+    AGE   = as.numeric(gsub("[^0-9]", "", `age:ch1`)),
+    GENDER = `gender:ch1`,
+    POS    = `sars-cov-2 positivity:ch1`,
+    STATE  = as.numeric(`n1_ct:ch1`)
+  ) %>%
+  filter(!is.na(AGE), !is.na(STATE), GENDER %in% c("M","F"), POS == "pos") %>%
+  mutate(
+    GENDER = recode(GENDER, "M"="Male", "F"="Female"),
+    AGE_GR = if_else(AGE > 60, ">60", "<=60"),
+    STATE_GR = case_when(
+      STATE < 19  ~ "high",
+      STATE <= 24 ~ "medium",
+      STATE > 24  ~ "low"
+    ),
+    STATE_GR = factor(STATE_GR, levels=c("low","medium","high")),
+    GENDER   = factor(GENDER, levels=c("Female","Male")),
+    AGE_GR   = factor(AGE_GR, levels=c("<=60",">60")),
+    POS      = factor(POS)
+  )
+
+View(metadata2)
+summary(metadata2$AGE_GR)
+summary(metadata2$GENDER)
+summary(metadata2$STATE_GR)
+
+```
+
+```{r}
+raw_counts <- read.table("GSE152075_raw_counts_GEO.txt", header = TRUE, sep=" ") %>%
+  .[,metadata2$TITLE]
+
+
+```
+
+```{r}
+stopifnot(all(colnames(raw_counts) == metadata2$TITLE))
+dim(raw_counts)
+dim(metadata2)
+```
+
+```{r}
+library(DESeq2)
+metadata2_df<-as.data.frame(metadata2)
+rownames(metadata2_df)<-metadata2$TITLE
+
+dds <- DESeqDataSetFromMatrix(countData = raw_counts, colData = metadata2_df, design= ~GENDER + AGE_GR + STATE_GR) #loading data
+dds <- DESeq(dds) #estimating factors
+plotDispEsts(dds)
+```
+
+```{r}
+norm_counts <- DESeq2::counts(dds, normalized = T)
+vsd <- vst(dds, blind = FALSE)
+pca <- prcomp(t(assay(vsd)))
+
+variance_explained <- pca$sdev^2 # squared standard deviation for each PC axis (first PC always explains the most of variance)
+percentage_variance_explained <- variance_explained/sum(variance_explained)*100 #calculate percent of variance explained for each PC axis
+percentage_variance_explained <- round(percentage_variance_explained,2) # round it to two decimal places
+
+pca_plot <- #table used for plotting
+  as.data.frame(pca$x) %>% # extract the "x" object from the "pca" list and convert it to a data.frame object - it consists of coordinates of each sample on all PC axes
+  tibble::rownames_to_column(var ="TITLE") %>% # create a new column called "SAMPLE" out of row names (sample ids)
+  left_join(metadata2_df,by = "TITLE") %>%  #combine our table with metadata - the rows will be combined based on value in the "SAMPLE" columns
+  mutate(group=interaction(GENDER, AGE_GR, STATE_GR))
+
+library(ggplot2)
+ggplot(pca_plot, aes(x=PC1,y=PC2))+
+  geom_point(aes(col = STATE_GR,shape=GENDER ),size = 3, alpha=0.85)+ facet_wrap(~ AGE_GR) +
+  labs(x = percentage_variance_explained[1],y = percentage_variance_explained[2], title="STATE_GR and GENDER")
+
+```
+
+```{r}
+library(tibble)
+dds_results_state <- results(dds, contrast = c("STATE_GR","high","low"), alpha = 0.01) %>%
+  as.data.frame() %>%
+  rownames_to_column("gene")
+head(dds_results_state,10)
+#nrow(dds_results)
+```
+
+```{r}
+library(ggrepel)
+volc <- dds_results_state %>%
+  filter(!is.na(padj), !is.na(log2FoldChange)) %>%
+  mutate(
+    direction = case_when(
+      padj < 0.01 & log2FoldChange >=  2 ~ "Up",
+      padj < 0.01 & log2FoldChange <= -2 ~ "Down",
+      T ~ "Non significant"
+    )
+  )
+top_n <- 10
+labels_df <- bind_rows(
+  volc %>% filter(direction == "Up")   %>% arrange(padj) %>% slice_head(n = top_n),
+  volc %>% filter(direction == "Down") %>% arrange(padj) %>% slice_head(n = top_n)
+)
+
+ggplot(volc)+
+  geom_point(aes(x=log2FoldChange, y=-log10(padj), color=direction))+
+  theme_bw()+
+  geom_vline(xintercept = c(-2,2),linetype = "dotted")+
+  geom_hline(yintercept = -log10(0.01), linetype = "dotted") +
+  scale_color_manual(values = c("Up"="red", "Down"="blue"))+
+  ggrepel::geom_text_repel(aes(x=log2FoldChange, y=-log10(padj), label = gene),
+    data = labels_df,
+    size = 3,
+    max.overlaps = Inf
+  ) +
+  labs(
+    title = "STATE_GR high vs low")
+
+```
+
+```{r}
+dds_results_age <- results(dds, contrast = c("AGE_GR",">60","<=60"), alpha = 0.01)
+dds_results_age <- as.data.frame(dds_results_age)
+```
+
+```{r}
+library(tibble)
+down_expressed <- dds_results_state%>% filter(padj < 0.01 & log2FoldChange <= -2)
+#View(down_expressed)
+up_expressed<-dds_results_state %>% filter(padj < 0.01 & log2FoldChange >= 2)
+#View(up_expressed)
+genes_down<- down_expressed$gene
+genes_down
+
+genes_up<-up_expressed$gene
+genes_up
+```
+
+```{r}
+library(biomaRt)
+listEnsembl()
+ensembl<-useEnsembl(biomart="genes")
+datasets_list <- listDatasets(ensembl) # display all available datasets
+dataset <- useEnsembl(biomart = "genes",dataset = "hsapiens_gene_ensembl") # save the chosen dataset to a variable
+```
+
+```{r}
+filters <- listFilters(dataset)
+pages <- attributePages(dataset)
+feature_attributes <- listAttributes(mart = dataset, page = "feature_page")
+```
+
+```{r}
+down_genes <- getBM(attributes = c("hgnc_symbol","ensembl_gene_id", "chromosome_name", "uniprotswissprot","description"),
+                     filters = c("hgnc_symbol","with_uniprotswissprot"),
+                     values = list(genes_down,TRUE),
+                     mart = dataset)
+down_genes
+```
+
+```{r}
+up_genes <- getBM(attributes = c("hgnc_symbol","ensembl_gene_id", "chromosome_name", "uniprotswissprot","description"),
+                     filters = c("hgnc_symbol","with_uniprotswissprot"),
+                     values = list(genes_up,TRUE),
+                     mart = dataset)
+up_genes
+```
+
+```{r}
+library(dplyr)
+library(tibble)
+dds_age <- DESeqDataSetFromMatrix(
+  countData = raw_counts,
+  colData   = metadata2_df,
+  design    = ~ GENDER + AGE_GR + STATE_GR + AGE_GR:STATE_GR
+)
+
+dds_age <- dds_age[rowSums(counts(dds_age)) >= 10, ]
+
+dds_age <- DESeq(
+  dds_age,
+  test = "LRT",
+  reduced = ~ GENDER + AGE_GR + STATE_GR
+)
+
+res_age <- results(dds_age, alpha = 0.01) %>%
+  as.data.frame() %>%
+  rownames_to_column("gene") %>% arrange(padj)
+
+View(res_age)
+```
+
+```{r}
+dds_gender <- DESeqDataSetFromMatrix(
+  countData = raw_counts,
+  colData   = metadata2_df,
+  design    = ~ GENDER + AGE_GR + STATE_GR + GENDER:STATE_GR
+)
+
+dds_gender <- dds_gender[rowSums(counts(dds_age)) >= 10, ]
+
+dds_gender <- DESeq(
+  dds_gender,
+  test = "LRT",
+  reduced = ~ GENDER + AGE_GR + STATE_GR
+)
+
+res_gender <- results(dds_gender, alpha = 0.01) %>%
+  as.data.frame() %>%
+  rownames_to_column("gene") %>% arrange(padj)
+
+head(res_gender,10)
+View(res_gender)
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+
+top_age_genes <- res_age %>% 
+  filter(!is.na(padj)) %>%
+  slice_min(padj, n=3) %>%
+  pull(gene)
+
+for(g in top_age_genes){
+  df <- plotCounts(dds_age, gene = g, intgroup = c("STATE_GR","AGE_GR"),
+                 normalized = TRUE, returnData = TRUE)
+
+  plot<-ggplot(df, aes(x = STATE_GR, y = count, color = AGE_GR)) +
+    geom_jitter(width = 0.15, alpha = 0.6, size = 2) +
+    stat_summary(aes(group = AGE_GR), fun = median, geom = "line") +
+    stat_summary(fun = median, geom = "point", size = 3) +
+    scale_y_log10() +
+    theme_classic() +
+    labs(title = g, y = "normalized count (log10)", x = "STATE_GR")
+  print(plot)
+}
+
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+
+top_gender_genes <- res_gender %>% 
+  filter(!is.na(padj)) %>%
+  slice_min(padj, n=3) %>%
+  pull(gene)
+
+for(g in top_gender_genes){
+  df <- plotCounts(dds_gender, gene = g, intgroup = c("STATE_GR","GENDER"),
+                 normalized = TRUE, returnData = TRUE)
+
+  plot<-ggplot(df, aes(x = STATE_GR, y = count, color = GENDER)) +
+    geom_jitter(width = 0.15, alpha = 0.6, size = 2) +
+    stat_summary(aes(group = GENDER), fun = median, geom = "line") +
+    stat_summary(fun = median, geom = "point", size = 3) +
+    scale_y_log10() +
+    theme_bw() +
+    labs(title = g, y = "normalized count (log10)", x = "STATE_GR")
+  print(plot)
+}
+```
