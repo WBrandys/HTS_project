@@ -580,10 +580,13 @@ p1 <- dotplot(GO_terms_gender_2, showCategory = 10) +
 library(cowplot)
 
 plot_grid(p1, p2, ncol = 2)
+```
 
-
+```{r}
+plot_grid(p3, p4, ncol = 2)
 ```
 
 ```{r}
 plot_grid(p5)
 ```
+
