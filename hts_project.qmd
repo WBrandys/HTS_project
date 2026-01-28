@@ -356,7 +356,32 @@ for(g in top_age_genes){
 
 ```
 
+```{r}
+library(ggplot2)
+library(dplyr)
+
+top_gender_genes <- res_gender %>% 
+  filter(!is.na(padj)) %>%
+  slice_min(padj, n=3) %>%
+  pull(gene)
+
+for(g in top_gender_genes){
+  df <- plotCounts(dds_gender, gene = g, intgroup = c("STATE_GR","GENDER"),
+                 normalized = TRUE, returnData = TRUE)
+
+  plot<-ggplot(df, aes(x = STATE_GR, y = count, color = GENDER)) +
+    geom_jitter(width = 0.15, alpha = 0.6, size = 2) +
+    stat_summary(aes(group = GENDER), fun = median, geom = "line") +
+    stat_summary(fun = median, geom = "point", size = 3) +
+    scale_y_log10() +
+    theme_bw() +
+    labs(title = g, y = "normalized count (log10)", x = "STATE_GR")
+  print(plot)
+}
+```
+
 # Functional analysis
+
 ```{r}
 #STEP 10: GO enrichment analysis – STATE (upregulated genes)
 
@@ -380,6 +405,7 @@ filtered_genes <- dds_results_state %>%
 ```
 
 ### Downregulated
+
 ```{r}
 # Select significantly downregulated genes:
 # - adjusted p-value < 0.01
@@ -501,7 +527,7 @@ head(GO_terms_age_table, 3)
 ```
 
 ```{r}
-p4 <- dotplot(GO_terms_aged, showCategory = 10, orderBy = "p.adjust")+
+p4 <- dotplot(GO_terms_age, showCategory = 10, orderBy = "p.adjust")+
   theme(
     axis.text.y = element_text(size = 7),
     axis.text.x = element_text(size = 10),
@@ -541,6 +567,7 @@ gene_universe_gender <- res_gender$gene
 ```
 
 ### Downregulated
+
 ```{r}
 # Select significantly gender-associated genes:
 # - adjusted p-value < 0.01
@@ -549,7 +576,9 @@ filtered_genes_gender <- res_gender %>%
   filter(padj < 0.01 & abs(log2FoldChange) > 2) %>%
   pull(gene)
 ```
+
 ### Upregulated
+
 ```{r}
 # Perform GO enrichment analysis for gender-associated genes
 GO_terms_gender <- enrichGO(
@@ -567,7 +596,9 @@ GO_terms_gender <- enrichGO(
 GO_terms_gender_table <- as.data.frame(GO_terms_gender)
 head(GO_terms_gender_table, 3)
 ```
+
 Blank table.
+
 ```{r}
 # Visualize GO enrichment for gender-associated genes
 p2 <- dotplot(GO_terms_gender, showCategory = 10)+
