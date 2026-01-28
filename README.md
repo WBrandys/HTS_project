@@ -19,4 +19,6 @@ This project performs differential gene expression (DGE) analysis on RNA-seq dat
 4.  **Gene selection** based on statistical significance (padj < 0.01, |log2FC| > 2)
 5.  **Functional analysis** of differentially expressed genes using **Gene Ontology (GO terms)**
 
+A list of all R packages used in the project, including versions and citations, is available in the file 'packages.txt'.
+
 All source code and detailed descriptions of each analysis step are included in the file 'hts_project.qmd'.
