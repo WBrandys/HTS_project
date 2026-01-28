@@ -356,10 +356,7 @@ for(g in top_age_genes){
 
 ```
 
-```         
-Functional analysis
-```
-
+# Functional analysis
 ```{r}
 #STEP 10: GO enrichment analysis – STATE (upregulated genes)
 
@@ -367,7 +364,9 @@ Functional analysis
 gene_universe <- dds_results_state$gene
 ```
 
-UP/DOWN
+## STATE
+
+### Upregulated
 
 ```{r}
 # Select significantly upregulated genes:
@@ -380,6 +379,7 @@ filtered_genes <- dds_results_state %>%
 
 ```
 
+### Downregulated
 ```{r}
 # Select significantly downregulated genes:
 # - adjusted p-value < 0.01
@@ -423,9 +423,7 @@ library(ggplot2)
 library(stringr)
 
 # Create a dotplot showing the top enriched GO terms
-p <- dotplot(GO_terms, showCategory = 10, orderBy = "p.adjust")
-
-p +
+p5 <- dotplot(GO_terms, showCategory = 10, orderBy = "p.adjust")+
   theme(
     axis.text.y = element_text(size = 10),
     axis.text.x = element_text(size = 10),
@@ -460,7 +458,9 @@ head(GO_terms_down_table, 3)
 
 ```
 
-AGE
+Blank table.
+
+## AGE
 
 ```{r}
 # Add gene names as a separate column
@@ -501,10 +501,7 @@ head(GO_terms_age_table, 3)
 ```
 
 ```{r}
-# Visualization of GO enrichment – AGE
-p <- dotplot(GO_terms_age, showCategory = 10, orderBy = "p.adjust")
-
-p  +
+p4 <- dotplot(GO_terms_aged, showCategory = 10, orderBy = "p.adjust")+
   theme(
     axis.text.y = element_text(size = 7),
     axis.text.x = element_text(size = 10),
@@ -512,13 +509,30 @@ p  +
     plot.title = element_text(hjust = 0.5, face = "bold")
   ) +
   labs(
-    title = "GO BP enrichment – AGE_GR",
+    title = "GO BP enrichment – AGE_GR (downregulated genes)",
+    x = "Gene ratio",
+    y = NULL
+  )
+
+```
+
+```{r}
+# Visualization of GO enrichment – AGE
+p3 <- dotplot(GO_terms_age, showCategory = 10, orderBy = "p.adjust")+
+  theme(
+    axis.text.y = element_text(size = 7),
+    axis.text.x = element_text(size = 10),
+    panel.grid.major.y = element_blank(),
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  ) +
+  labs(
+    title = "GO BP enrichment – AGE_GR (upregulated genes)",
     x = "Gene ratio",
     y = NULL
   )
 ```
 
-Gender
+## Gender
 
 ```{r}
 # Define the gene universe for gender-related analysis
@@ -526,6 +540,7 @@ gene_universe_gender <- res_gender$gene
 
 ```
 
+### Downregulated
 ```{r}
 # Select significantly gender-associated genes:
 # - adjusted p-value < 0.01
@@ -534,7 +549,7 @@ filtered_genes_gender <- res_gender %>%
   filter(padj < 0.01 & abs(log2FoldChange) > 2) %>%
   pull(gene)
 ```
-
+### Upregulated
 ```{r}
 # Perform GO enrichment analysis for gender-associated genes
 GO_terms_gender <- enrichGO(
@@ -552,14 +567,27 @@ GO_terms_gender <- enrichGO(
 GO_terms_gender_table <- as.data.frame(GO_terms_gender)
 head(GO_terms_gender_table, 3)
 ```
-
+Blank table.
 ```{r}
 # Visualize GO enrichment for gender-associated genes
-dotplot(GO_terms_gender, showCategory = 10)
+p2 <- dotplot(GO_terms_gender, showCategory = 10)+
+  theme(
+    axis.text.y = element_text(size = 7),
+    axis.text.x = element_text(size = 10),
+    panel.grid.major.y = element_blank(),
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  ) +
+  labs(
+    title = "GO BP enrichment–GENDER (upregulated genes) ",
+    x = "Gene ratio",
+    y = NULL
+  )
 
 ```
 
-Im changing p value for 0.05 for wider range of data
+We decided to change p adjust for 0.05 for wider range of data, and to observant new patterns
+
+### P.adjust \< 0.05
 
 ```{r}
 # Repeat gene filtering using a less stringent adjusted p-value threshold (0.05) to obtain a broader set of genes
@@ -588,9 +616,7 @@ head(GO_terms_gender_table, 3)
 
 ```{r}
 # Visualization of GO enrichment – GENDER (relaxed threshold)
-p <- dotplot(GO_terms_gender_2, showCategory = 10)
-
-p  +
+p1 <- dotplot(GO_terms_gender_2, showCategory = 10) +
   theme(
     axis.text.y = element_text(size = 7),
     axis.text.x = element_text(size = 10),
@@ -598,7 +624,7 @@ p  +
     plot.title = element_text(hjust = 0.5, face = "bold")
   ) +
   labs(
-    title = "GO BP enrichment – GENDER",
+    title = "GO BP enrichment – GENDER (upregulated genes)",
     x = "Gene ratio",
     y = NULL
   )
