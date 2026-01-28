@@ -278,17 +278,15 @@ for(g in top_gender_genes){
   print(plot)
 }
 ```
-```         
-Functional analysis
-```
+# Functional analysis
 
 ```{r}
 gene_universe <- dds_results_state$gene
 ```
 
-STATE
+## STATE
 
-Upregulated
+### Upregulated
 
 ```{r}
 filtered_genes <- dds_results_state %>%
@@ -298,7 +296,8 @@ filtered_genes <- dds_results_state %>%
 
 ```
 
-Downregulated
+### Downregulated
+
 ```{r}
 filtered_genes_down <- dds_results_state %>%
   filter(padj < 0.01 & log2FoldChange < -2) %>%
@@ -369,9 +368,9 @@ head(GO_terms_down_table, 3)
 
 ```
 
-Blank table. 
+Blank table.
 
-AGE
+## AGE
 
 ```{r}
 
@@ -458,12 +457,14 @@ p3 <- dotplot(GO_terms_age, showCategory = 10, orderBy = "p.adjust")+
   )
 ```
 
-Gender
+## Gender
 
 ```{r}
 gene_universe_gender <- res_gender$gene
 ```
-Downregulated
+
+### Downregulated
+
 ```{r}
 
 filtered_genes_gender_down <-res_gender %>%
@@ -471,7 +472,9 @@ filtered_genes_gender_down <-res_gender %>%
   pull(gene)
 
 ```
-Upregulated
+
+### Upregulated
+
 ```{r}
 filtered_genes_gender <- res_gender %>%
   filter(padj < 0.01 & abs(log2FoldChange) > 2) %>%
@@ -532,6 +535,8 @@ p2 <- dotplot(GO_terms_gender, showCategory = 10)+
 
 We decided to change p adjust for 0.05 for wider range of data, and to observant new patterns
 
+### P.adjust \< 0.05
+
 ```{r}
 filtered_genes_gender_2 <- res_gender %>%
   filter(padj < 0.05 & abs(log2FoldChange) > 2) %>%
@@ -569,6 +574,7 @@ p1 <- dotplot(GO_terms_gender_2, showCategory = 10) +
     y = NULL
   )
 ```
+## Plots
 
 ```{r}
 library(cowplot)
@@ -581,4 +587,3 @@ plot_grid(p1, p2, ncol = 2)
 ```{r}
 plot_grid(p5)
 ```
-
