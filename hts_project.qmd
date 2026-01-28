@@ -1,46 +1,55 @@
 ---
-title: "hts"
+title: "HTS_project: Differential Expression and Functional Analysis of COVID-19 Patients based on Viral Load, Age and Sex"
 format: html
 editor: visual
 ---
 
-## Quarto
-
-Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
-
 ## DGE
 
 ```{r}
-library(GEOquery)
-library(dplyr)
+library(GEOquery) #For downloading GEO data
+library(dplyr) #For data cleaning and manipulation
 
+# STEP 1: GET METADATA FROM GEO DATABASE (GSE152075)
+#---------------------------------------------------
+#Download the full GSE152075 dataset
+#getGEO() downloads the full experiment info + sample metadata
+#GSEMatrix=TRUE gives us an ExpressionSet with both data and metadata
 data_whole <- getGEO("GSE152075", GSEMatrix = TRUE)
 data <- data_whole[[1]]
-metadata <- pData(data)
+metadata <- pData(data) #all sample info like age, gender, etc.
 
+
+# STEP 2: CLEAN AND RECODE METADATA
+#---------------------------------------------------
+#We create a clean metadata table with only variables we care about
 metadata2 <- metadata %>%
   transmute(
-    TITLE = title,
-    AGE   = as.numeric(gsub("[^0-9]", "", `age:ch1`)),
-    GENDER = `gender:ch1`,
-    POS    = `sars-cov-2 positivity:ch1`,
-    STATE  = as.numeric(`n1_ct:ch1`)
+    TITLE = title, #Sample ID
+    AGE   = as.numeric(gsub("[^0-9]", "", `age:ch1`)),  #Extract numbers from age field
+    GENDER = `gender:ch1`,  #Gender ("M"/"F")
+    POS    = `sars-cov-2 positivity:ch1`, #SARS-CoV-2 test result (pos/neg)
+    STATE  = as.numeric(`n1_ct:ch1`) #Ct value (lower = higher viral load)
   ) %>%
-  filter(!is.na(AGE), !is.na(STATE), GENDER %in% c("M","F"), POS == "pos") %>%
+  #Remove samples with missing data or weird values
+  filter(!is.na(AGE), !is.na(STATE), GENDER %in% c("M","F"), POS == "pos") %>% #Filtering and keeping only positive samples
+  #Create groups from raw values
   mutate(
-    GENDER = recode(GENDER, "M"="Male", "F"="Female"),
-    AGE_GR = if_else(AGE > 60, ">60", "<=60"),
-    STATE_GR = case_when(
-      STATE < 19  ~ "high",
-      STATE <= 24 ~ "medium",
-      STATE > 24  ~ "low"
-    ),
+    GENDER = recode(GENDER, "M"="Male", "F"="Female"), #Convert gender codes to readable labels
+    AGE_GR = if_else(AGE > 60, ">60", "<=60"),  #Split age into two groups: young (<60) vs elderly (≥60)
+    STATE_GR = case_when( #Group Ct values into viral load categories:
+      STATE < 19  ~ "high", #high viral load (Ct < 19)
+      STATE <= 24 ~ "medium", #medium viral load (Ct 19-24)
+      STATE > 24  ~ "low" #low viral load (Ct > 24)
+    ), 
+    #Convert to factors with specific order
     STATE_GR = factor(STATE_GR, levels=c("low","medium","high")),
     GENDER   = factor(GENDER, levels=c("Female","Male")),
     AGE_GR   = factor(AGE_GR, levels=c("<=60",">60")),
     POS      = factor(POS)
   )
 
+#check of our cleaned metadata
 View(metadata2)
 summary(metadata2$AGE_GR)
 summary(metadata2$GENDER)
@@ -49,6 +58,9 @@ summary(metadata2$STATE_GR)
 ```
 
 ```{r}
+# STEP 3: LOAD RAW GENE COUNTS MATRIX
+#---------------------------------------------------
+#Read the raw RNA-seq counts (genes x samples)
 raw_counts <- read.table("GSE152075_raw_counts_GEO.txt", header = TRUE, sep=" ") %>%
   .[,metadata2$TITLE]
 
@@ -56,29 +68,42 @@ raw_counts <- read.table("GSE152075_raw_counts_GEO.txt", header = TRUE, sep=" ")
 ```
 
 ```{r}
+#SAFETY CHECK: Make sure all sample names match between counts and metadat
 stopifnot(all(colnames(raw_counts) == metadata2$TITLE))
+#Check dimensions
 dim(raw_counts)
 dim(metadata2)
 ```
 
 ```{r}
-library(DESeq2)
+# STEP 4: SETUP DESeq2 DATASET
+#---------------------------------------------------
+library(DESeq2)  # Main package for RNA-seq DE analysis
+# Convert metadata to data.frame and set row names
 metadata2_df<-as.data.frame(metadata2)
 rownames(metadata2_df)<-metadata2$TITLE
 
+# Create DESeqDataSet object (the main DESeq2 object)
+# design tells DESeq2 which variables to model
 dds <- DESeqDataSetFromMatrix(countData = raw_counts, colData = metadata2_df, design= ~GENDER + AGE_GR + STATE_GR) #loading data
 dds <- DESeq(dds) #estimating factors
 plotDispEsts(dds)
 ```
 
 ```{r}
+# STEP 5: NORMALIZATION AND PCA
+#---------------------------------------------------
+#Get normalized counts (for plotting)
 norm_counts <- DESeq2::counts(dds, normalized = T)
+# Variance stabilizing transformation (VST) for PCA
 vsd <- vst(dds, blind = FALSE)
+# Run PCA on transformed data
 pca <- prcomp(t(assay(vsd)))
 
-variance_explained <- pca$sdev^2 # squared standard deviation for each PC axis (first PC always explains the most of variance)
+# Calculate % variance explained by each PC
+variance_explained <- pca$sdev^2 #squared standard deviation for each PC axis (first PC always explains the most of variance)
 percentage_variance_explained <- variance_explained/sum(variance_explained)*100 #calculate percent of variance explained for each PC axis
-percentage_variance_explained <- round(percentage_variance_explained,2) # round it to two decimal places
+percentage_variance_explained <- round(percentage_variance_explained,2) #round it to two decimal places
 
 pca_plot <- #table used for plotting
   as.data.frame(pca$x) %>% # extract the "x" object from the "pca" list and convert it to a data.frame object - it consists of coordinates of each sample on all PC axes
@@ -86,6 +111,7 @@ pca_plot <- #table used for plotting
   left_join(metadata2_df,by = "TITLE") %>%  #combine our table with metadata - the rows will be combined based on value in the "SAMPLE" columns
   mutate(group=interaction(GENDER, AGE_GR, STATE_GR))
 
+# PCA VISUALIZATION
 library(ggplot2)
 ggplot(pca_plot, aes(x=PC1,y=PC2))+
   geom_point(aes(col = STATE_GR,shape=GENDER ),size = 3, alpha=0.85)+ facet_wrap(~ AGE_GR) +
@@ -94,38 +120,53 @@ ggplot(pca_plot, aes(x=PC1,y=PC2))+
 ```
 
 ```{r}
+# STEP 6: EXTRACT RESULTS - STATEGR (high vs low viral load)
+#---------------------------------------------------
 library(tibble)
+
+# Get results for STATEGR: high vs low contrast
+#alpha = 0.01 sets FDR threshold to 1%
 dds_results_state <- results(dds, contrast = c("STATE_GR","high","low"), alpha = 0.01) %>%
   as.data.frame() %>%
   rownames_to_column("gene")
 head(dds_results_state,10)
-#nrow(dds_results)
+#nrow(dds_results) # Total genes tested
 ```
 
 ```{r}
-library(ggrepel)
+# STEP 7: VOLCANO PLOT (STATEGR high vs low)
+#---------------------------------------------------
+library(ggrepel) #For non-overlapping gene labels
+
+#Prepare volcano data. remove genes with NA padj or log2FC
+
 volc <- dds_results_state %>%
   filter(!is.na(padj), !is.na(log2FoldChange)) %>%
   mutate(
     direction = case_when(
-      padj < 0.01 & log2FoldChange >=  2 ~ "Up",
-      padj < 0.01 & log2FoldChange <= -2 ~ "Down",
-      T ~ "Non significant"
+      padj < 0.01 & log2FoldChange >=  2 ~ "Up", #SIGNIFICANT UP: padj<0.01 AND log2FC>2 (2-fold up)
+      padj < 0.01 & log2FoldChange <= -2 ~ "Down", #SIGNIFICANT DOWN: padj<0.01 AND log2FC<-2 (2-fold down)  
+      T ~ "Non significant" #everything else
     )
   )
+
+# Get top 10 most significant genes for labels
 top_n <- 10
 labels_df <- bind_rows(
   volc %>% filter(direction == "Up")   %>% arrange(padj) %>% slice_head(n = top_n),
   volc %>% filter(direction == "Down") %>% arrange(padj) %>% slice_head(n = top_n)
 )
 
+# Create volcano plot
 ggplot(volc)+
   geom_point(aes(x=log2FoldChange, y=-log10(padj), color=direction))+
   theme_bw()+
+  #SIGNIFICANCE THRESHOLDS (dotted lines)
   geom_vline(xintercept = c(-2,2),linetype = "dotted")+
-  geom_hline(yintercept = -log10(0.01), linetype = "dotted") +
+  geom_hline(yintercept = -log10(0.01), linetype = "dotted") + #CUSTOM COLORS: Red=UP, Blue=DOWN, Grey=NS
   scale_color_manual(values = c("Up"="red", "Down"="blue"))+
-  ggrepel::geom_text_repel(aes(x=log2FoldChange, y=-log10(padj), label = gene),
+  #LABEL TOP GENES (no overlap)
+  ggrepel::geom_text_repel(aes(x=log2FoldChange,  y=-log10(padj), label = gene),
     data = labels_df,
     size = 3,
     max.overlaps = Inf
@@ -133,19 +174,29 @@ ggplot(volc)+
   labs(
     title = "STATE_GR high vs low")
 
+
 ```
 
 ```{r}
+#EXTRACT AGE EFFECT FROM MAIN DESeq2 MODEL
 dds_results_age <- results(dds, contrast = c("AGE_GR",">60","<=60"), alpha = 0.01)
+
+#Convert DESeqResults object to regular data.frame
 dds_results_age <- as.data.frame(dds_results_age)
 ```
 
 ```{r}
+#EXTRACT SIGNIFICANT GENES FROM STATEGR RESULTS
 library(tibble)
+#DOWN-REGULATED: statistically sig + log2FC <= -2
 down_expressed <- dds_results_state%>% filter(padj < 0.01 & log2FoldChange <= -2)
 #View(down_expressed)
+
+#UP-REGULATED: statistically sig + log2FC >= 2 
 up_expressed<-dds_results_state %>% filter(padj < 0.01 & log2FoldChange >= 2)
 #View(up_expressed)
+
+#Extract JUST GENE NAMES (vectors for biomart)
 genes_down<- down_expressed$gene
 genes_down
 
@@ -154,65 +205,88 @@ genes_up
 ```
 
 ```{r}
-library(biomaRt)
-listEnsembl()
-ensembl<-useEnsembl(biomart="genes")
-datasets_list <- listDatasets(ensembl) # display all available datasets
-dataset <- useEnsembl(biomart = "genes",dataset = "hsapiens_gene_ensembl") # save the chosen dataset to a variable
+library(biomaRt) #Connect to Ensembl gene database
+
+listEnsembl() #Show available Ensembl servers
+ensembl<-useEnsembl(biomart="genes") #Connect to GENES BioMart
+datasets_list <- listDatasets(ensembl) #display all available datasets
+dataset <- useEnsembl(biomart = "genes",dataset = "hsapiens_gene_ensembl") #save the chosen dataset to a variable
 ```
 
 ```{r}
+#EXPLORE WHAT WE CAN QUERY FROM BIOMART
 filters <- listFilters(dataset)
 pages <- attributePages(dataset)
 feature_attributes <- listAttributes(mart = dataset, page = "feature_page")
 ```
 
 ```{r}
-down_genes <- getBM(attributes = c("hgnc_symbol","ensembl_gene_id", "chromosome_name", "uniprotswissprot","description"),
+down_genes <- getBM(
+    attributes = c("hgnc_symbol",        #Gene symbol (IFITM1, TP53)
+                 "ensembl_gene_id",    #ENSG00000123456
+                 "chromosome_name",    #"1", "2", "X", etc.
+                 "uniprotswissprot",   #P12345 (UniProt protein ID)
+                 "description"),       #"interferon induced..." 
+
+    #WHAT VALUES FOR EACH FILTER?
                      filters = c("hgnc_symbol","with_uniprotswissprot"),
-                     values = list(genes_down,TRUE),
+                     values = list(genes_down,TRUE),  
+    #genes_down = our list of downregulated symbols
+    #TRUE = only genes WITH UniProt annotation
                      mart = dataset)
 down_genes
 ```
 
 ```{r}
+
+#SAME columns as down_genes
 up_genes <- getBM(attributes = c("hgnc_symbol","ensembl_gene_id", "chromosome_name", "uniprotswissprot","description"),
-                     filters = c("hgnc_symbol","with_uniprotswissprot"),
+                  #SAME filters
+                     filters =  c("hgnc_symbol","with_uniprotswissprot"),
                      values = list(genes_up,TRUE),
-                     mart = dataset)
+                     mart = dataset)  #DIFFERENT gene list (UPregulated instead of DOWN)
 up_genes
 ```
 
 ```{r}
+# STEP 8: AGE EFFECT (Interaction model)
+#---------------------------------------------------
 library(dplyr)
 library(tibble)
+
+#New DESeqDataSet with interaction term
 dds_age <- DESeqDataSetFromMatrix(
   countData = raw_counts,
   colData   = metadata2_df,
   design    = ~ GENDER + AGE_GR + STATE_GR + AGE_GR:STATE_GR
-)
+) #main effects + interaction!
 
-dds_age <- dds_age[rowSums(counts(dds_age)) >= 10, ]
+dds_age <- dds_age[rowSums(counts(dds_age)) >= 10, ] #At least 10 counts total
 
+#LIKELIHOOD RATIO TEST (LRT)
 dds_age <- DESeq(
   dds_age,
   test = "LRT",
-  reduced = ~ GENDER + AGE_GR + STATE_GR
+  reduced = ~ GENDER + AGE_GR + STATE_GR #Model WITHOUT interaction
 )
 
+#Extract results (significant interactions)
 res_age <- results(dds_age, alpha = 0.01) %>%
   as.data.frame() %>%
-  rownames_to_column("gene") %>% arrange(padj)
+  rownames_to_column("gene") %>% arrange(padj) #Sort by significance
 
 View(res_age)
 ```
 
 ```{r}
+# STEP 9: GENDER x STATE INTERACTION MODEL
+#---------------------------------------------------
+
 dds_gender <- DESeqDataSetFromMatrix(
   countData = raw_counts,
   colData   = metadata2_df,
   design    = ~ GENDER + AGE_GR + STATE_GR + GENDER:STATE_GR
-)
+) #GENDER:STATE interaction
 
 dds_gender <- dds_gender[rowSums(counts(dds_age)) >= 10, ]
 
@@ -231,64 +305,74 @@ View(res_gender)
 ```
 
 ```{r}
-library(ggplot2)
-library(dplyr)
+# VISUALIZE TOP MOST SIGNIFICANT AGE-EFFECT GENES
+
+library(ggplot2)   #For plotting
+library(dplyr)     #For data manipulation (%>%)
 
 top_age_genes <- res_age %>% 
-  filter(!is.na(padj)) %>%
-  slice_min(padj, n=3) %>%
-  pull(gene)
+  filter(!is.na(padj)) %>% # Remove genes with NA padj
+  slice_min(padj, n=3) %>% # Get 3 genes with LOWEST padj
+  pull(gene) # Extract just gene names as vector
+# Result: top_age_genes = c("Gene1", "Gene2", "Gene3")
+
+
+#LOOP THROUGH EACH TOP GENE AND PLOT
+# plotCounts() extracts normalized counts for ONE gene across ALL samples
 
 for(g in top_age_genes){
-  df <- plotCounts(dds_age, gene = g, intgroup = c("STATE_GR","AGE_GR"),
-                 normalized = TRUE, returnData = TRUE)
-
-  plot<-ggplot(df, aes(x = STATE_GR, y = count, color = AGE_GR)) +
+  df <- plotCounts(dds_age, # DESeqDataSet with age interaction model
+                   gene = g,  # Plot THIS gene only
+                   intgroup = c("STATE_GR", "AGE_GR"),#Color/shape by these factors
+                   normalized = TRUE, # Use normalized counts (not raw)
+                   returnData = TRUE) # returnData=TRUE = give back data.frame
+  
+#CREATE EXPRESSION PLOT FOR THIS GENE
+  plot <- ggplot(df, # Our expression data
+                 aes(x = STATE_GR, # X-axis = viral load groups
+                     y = count, # Y-axis = gene expression
+                     color = AGE_GR)) + # Color points by age group
     geom_jitter(width = 0.15, alpha = 0.6, size = 2) +
-    stat_summary(aes(group = AGE_GR), fun = median, geom = "line") +
+    stat_summary(aes(group = AGE_GR),  # Line per age group
+                 fun = median, #Use median (robust to outliers)
+                 geom = "line") + # Draw line
+    
+    # BIG MEDIAN POINTS on the line
     stat_summary(fun = median, geom = "point", size = 3) +
+    
+    # LOG10 Y-SCALE (RNA-seq data spans many orders of magnitude)
     scale_y_log10() +
+    
+    # CLEAN BLACK/WHITE THEME
     theme_classic() +
-    labs(title = g, y = "normalized count (log10)", x = "STATE_GR")
+    
+    # LABELS
+    labs(title = g, # Gene name as title
+         y = "normalized count (log10)", # Y-axis label
+         x = "STATE_GR")  # X-axis label
+
   print(plot)
 }
 
 ```
 
-```{r}
-library(ggplot2)
-library(dplyr)
-
-top_gender_genes <- res_gender %>% 
-  filter(!is.na(padj)) %>%
-  slice_min(padj, n=3) %>%
-  pull(gene)
-
-for(g in top_gender_genes){
-  df <- plotCounts(dds_gender, gene = g, intgroup = c("STATE_GR","GENDER"),
-                 normalized = TRUE, returnData = TRUE)
-
-  plot<-ggplot(df, aes(x = STATE_GR, y = count, color = GENDER)) +
-    geom_jitter(width = 0.15, alpha = 0.6, size = 2) +
-    stat_summary(aes(group = GENDER), fun = median, geom = "line") +
-    stat_summary(fun = median, geom = "point", size = 3) +
-    scale_y_log10() +
-    theme_bw() +
-    labs(title = g, y = "normalized count (log10)", x = "STATE_GR")
-  print(plot)
-}
+```         
+Functional analysis
 ```
-# Functional analysis
 
 ```{r}
+#STEP 10: GO enrichment analysis – STATE (upregulated genes)
+
+# Define the gene universe as all genes tested
 gene_universe <- dds_results_state$gene
 ```
 
-## STATE
-
-### Upregulated
+UP/DOWN
 
 ```{r}
+# Select significantly upregulated genes:
+#- adjusted p-value < 0.01
+#- log2 fold change > 2
 filtered_genes <- dds_results_state %>%
   filter(padj < 0.01 & log2FoldChange > 2) %>%
   pull(gene)
@@ -296,9 +380,10 @@ filtered_genes <- dds_results_state %>%
 
 ```
 
-### Downregulated
-
 ```{r}
+# Select significantly downregulated genes:
+# - adjusted p-value < 0.01
+# - log2 fold change < -2
 filtered_genes_down <- dds_results_state %>%
   filter(padj < 0.01 & log2FoldChange < -2) %>%
   pull(gene)
@@ -307,23 +392,24 @@ length(filtered_genes_down)
 ```
 
 ```{r}
+# Load required libraries for GO enrichment analysis
 library(GO.db)
 library(clusterProfiler)
 library(org.Hs.eg.db)
 library(enrichplot)
 
 
-
+# Perform Gene Ontology Biological Process enrichment analysis
 GO_terms <- enrichGO(
-  gene          = filtered_genes,      # genes of interest
-  universe      = gene_universe,       # all detected genes
-  OrgDb         = "org.Hs.eg.db",
-  pAdjustMethod = "BH",
+  gene          = filtered_genes,      #list of significant genes
+  universe      = gene_universe,       #background gene set
+  OrgDb         = "org.Hs.eg.db",       #human gene annotation database
+  pAdjustMethod = "BH",                 #Benjamini–Hochberg correction
   pvalueCutoff  = 0.01,
   qvalueCutoff  = 0.01,
-  readable      = TRUE,
+  readable      = TRUE,                #convert gene IDs to symbols
   keyType       = "SYMBOL",
-  ont           = "BP"
+  ont           = "BP"                 #Biological Process ontology
 )
 
 GO_terms_table <- as.data.frame(GO_terms)
@@ -332,10 +418,14 @@ head(GO_terms_table, 3)
 ```
 
 ```{r}
+library(enrichplot)
 library(ggplot2)
 library(stringr)
 
-p5 <- dotplot(GO_terms, showCategory = 10, orderBy = "p.adjust")+
+# Create a dotplot showing the top enriched GO terms
+p <- dotplot(GO_terms, showCategory = 10, orderBy = "p.adjust")
+
+p +
   theme(
     axis.text.y = element_text(size = 10),
     axis.text.x = element_text(size = 10),
@@ -350,6 +440,7 @@ p5 <- dotplot(GO_terms, showCategory = 10, orderBy = "p.adjust")+
 ```
 
 ```{r}
+# Perform GO enrichment analysis for downregulated genes
 GO_terms_down <- enrichGO(
   gene          = filtered_genes_down,
   universe      = gene_universe,
@@ -362,37 +453,36 @@ GO_terms_down <- enrichGO(
   ont           = "BP"
 )
 
+# Convert results to a data frame
 GO_terms_down_table <- as.data.frame(GO_terms_down)
 head(GO_terms_down_table, 3)
 
 
 ```
 
-Blank table.
-
-## AGE
+AGE
 
 ```{r}
-
+# Add gene names as a separate column
+dds_results_age <- dds_results_age %>%
+  rownames_to_column("gene")
+# Define the gene universe for age-related analysis
 gene_universe_age <- dds_results_age$gene
 
 ```
 
 ```{r}
-#upregulated
+# Select genes significantly associated with age:
+# - adjusted p-value < 0.01
+# - absolute log2 fold change > 2
 filtered_genes_age <- dds_results_age %>%
   filter(padj < 0.01 & abs(log2FoldChange) > 2) %>%
-  pull(gene)
-
-#downregulated
-filtered_genes_age_d <- dds_results_age %>%
-  filter(padj < 0.01 & abs(log2FoldChange) > -2) %>%
   pull(gene)
 
 ```
 
 ```{r}
-
+# Perform GO enrichment analysis for age-associated genes
 GO_terms_age <- enrichGO(
   gene          = filtered_genes_age,
   universe      = gene_universe_age,
@@ -404,30 +494,17 @@ GO_terms_age <- enrichGO(
   keyType       = "SYMBOL",
   ont           = "BP"
 )
-
+# Convert results to a data frame
 GO_terms_age_table <- as.data.frame(GO_terms_age)
 head(GO_terms_age_table, 3)
+
 ```
 
 ```{r}
-GO_terms_aged <- enrichGO(
-  gene          = filtered_genes_age_d,
-  universe      = gene_universe_age,
-  OrgDb         = "org.Hs.eg.db",
-  pAdjustMethod = "BH",
-  pvalueCutoff  = 0.01,
-  qvalueCutoff  = 0.01,
-  readable      = TRUE,
-  keyType       = "SYMBOL",
-  ont           = "BP"
-)
+# Visualization of GO enrichment – AGE
+p <- dotplot(GO_terms_age, showCategory = 10, orderBy = "p.adjust")
 
-GO_terms_age_table <- as.data.frame(GO_terms_age)
-head(GO_terms_age_table, 3)
-```
-
-```{r}
-p4 <- dotplot(GO_terms_aged, showCategory = 10, orderBy = "p.adjust")+
+p  +
   theme(
     axis.text.y = element_text(size = 7),
     axis.text.x = element_text(size = 10),
@@ -435,53 +512,31 @@ p4 <- dotplot(GO_terms_aged, showCategory = 10, orderBy = "p.adjust")+
     plot.title = element_text(hjust = 0.5, face = "bold")
   ) +
   labs(
-    title = "GO BP enrichment – AGE_GR (downregulated genes)",
-    x = "Gene ratio",
-    y = NULL
-  )
-
-```
-
-```{r}
-p3 <- dotplot(GO_terms_age, showCategory = 10, orderBy = "p.adjust")+
-  theme(
-    axis.text.y = element_text(size = 7),
-    axis.text.x = element_text(size = 10),
-    panel.grid.major.y = element_blank(),
-    plot.title = element_text(hjust = 0.5, face = "bold")
-  ) +
-  labs(
-    title = "GO BP enrichment – AGE_GR (upregulated genes)",
+    title = "GO BP enrichment – AGE_GR",
     x = "Gene ratio",
     y = NULL
   )
 ```
 
-## Gender
+Gender
 
 ```{r}
+# Define the gene universe for gender-related analysis
 gene_universe_gender <- res_gender$gene
-```
-
-### Downregulated
-
-```{r}
-
-filtered_genes_gender_down <-res_gender %>%
-  filter(padj < 0.01 & log2FoldChange < -2) %>%
-  pull(gene)
 
 ```
 
-### Upregulated
-
 ```{r}
+# Select significantly gender-associated genes:
+# - adjusted p-value < 0.01
+# - absolute log2 fold change > 2
 filtered_genes_gender <- res_gender %>%
   filter(padj < 0.01 & abs(log2FoldChange) > 2) %>%
   pull(gene)
 ```
 
 ```{r}
+# Perform GO enrichment analysis for gender-associated genes
 GO_terms_gender <- enrichGO(
   gene          = filtered_genes_gender,
   universe      = gene_universe_gender,
@@ -493,57 +548,28 @@ GO_terms_gender <- enrichGO(
   keyType       = "SYMBOL",
   ont           = "BP"
 )
-
+# Convert results to a data frame
 GO_terms_gender_table <- as.data.frame(GO_terms_gender)
 head(GO_terms_gender_table, 3)
 ```
 
 ```{r}
-GO_terms_gender_down <- enrichGO(
-  gene          = filtered_genes_gender_down,
-  universe      = gene_universe_gender,
-  OrgDb         = "org.Hs.eg.db",
-  pAdjustMethod = "BH",
-  pvalueCutoff  = 0.01,
-  qvalueCutoff  = 0.01,
-  readable      = TRUE,
-  keyType       = "SYMBOL",
-  ont           = "BP"
-)
-
-GO_terms_gender_table <- as.data.frame(GO_terms_gender_down)
-head(GO_terms_gender_table, 3)
-```
-
-Blank table.
-
-```{r}
-p2 <- dotplot(GO_terms_gender, showCategory = 10)+
-  theme(
-    axis.text.y = element_text(size = 7),
-    axis.text.x = element_text(size = 10),
-    panel.grid.major.y = element_blank(),
-    plot.title = element_text(hjust = 0.5, face = "bold")
-  ) +
-  labs(
-    title = "GO BP enrichment–GENDER (upregulated genes) ",
-    x = "Gene ratio",
-    y = NULL
-  )
+# Visualize GO enrichment for gender-associated genes
+dotplot(GO_terms_gender, showCategory = 10)
 
 ```
 
-We decided to change p adjust for 0.05 for wider range of data, and to observant new patterns
-
-### P.adjust \< 0.05
+Im changing p value for 0.05 for wider range of data
 
 ```{r}
+# Repeat gene filtering using a less stringent adjusted p-value threshold (0.05) to obtain a broader set of genes
 filtered_genes_gender_2 <- res_gender %>%
   filter(padj < 0.05 & abs(log2FoldChange) > 2) %>%
   pull(gene)
 ```
 
 ```{r}
+# Perform GO enrichment analysis using the relaxed gene set
 GO_terms_gender_2 <- enrichGO(
   gene          = filtered_genes_gender_2,
   universe      = gene_universe_gender,
@@ -561,7 +587,10 @@ head(GO_terms_gender_table, 3)
 ```
 
 ```{r}
-p1 <- dotplot(GO_terms_gender_2, showCategory = 10) +
+# Visualization of GO enrichment – GENDER (relaxed threshold)
+p <- dotplot(GO_terms_gender_2, showCategory = 10)
+
+p  +
   theme(
     axis.text.y = element_text(size = 7),
     axis.text.x = element_text(size = 10),
@@ -569,24 +598,27 @@ p1 <- dotplot(GO_terms_gender_2, showCategory = 10) +
     plot.title = element_text(hjust = 0.5, face = "bold")
   ) +
   labs(
-    title = "GO BP enrichment – GENDER (upregulated genes)",
+    title = "GO BP enrichment – GENDER",
     x = "Gene ratio",
     y = NULL
   )
 ```
+
 ## Plots
 
 ```{r}
-library(cowplot)
+library(cowplot) # Load the cowplot package for combining multiple plots
 
+# Combine plots p1 and p2 into a single figure arranged in two columns
 plot_grid(p1, p2, ncol = 2)
 ```
 
 ```{r}
+# Combine plots p3 and p4 into a single figure arranged in two columns
 plot_grid(p3, p4, ncol = 2)
 ```
 
 ```{r}
+# Display plot p5 as a standalone figure
 plot_grid(p5)
 ```
-
