@@ -278,3 +278,307 @@ for(g in top_gender_genes){
   print(plot)
 }
 ```
+```         
+Functional analysis
+```
+
+```{r}
+gene_universe <- dds_results_state$gene
+```
+
+STATE
+
+Upregulated
+
+```{r}
+filtered_genes <- dds_results_state %>%
+  filter(padj < 0.01 & log2FoldChange > 2) %>%
+  pull(gene)
+
+
+```
+
+Downregulated
+```{r}
+filtered_genes_down <- dds_results_state %>%
+  filter(padj < 0.01 & log2FoldChange < -2) %>%
+  pull(gene)
+
+length(filtered_genes_down)
+```
+
+```{r}
+library(GO.db)
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(enrichplot)
+
+
+
+GO_terms <- enrichGO(
+  gene          = filtered_genes,      # genes of interest
+  universe      = gene_universe,       # all detected genes
+  OrgDb         = "org.Hs.eg.db",
+  pAdjustMethod = "BH",
+  pvalueCutoff  = 0.01,
+  qvalueCutoff  = 0.01,
+  readable      = TRUE,
+  keyType       = "SYMBOL",
+  ont           = "BP"
+)
+
+GO_terms_table <- as.data.frame(GO_terms)
+head(GO_terms_table, 3)
+
+```
+
+```{r}
+library(ggplot2)
+library(stringr)
+
+p5 <- dotplot(GO_terms, showCategory = 10, orderBy = "p.adjust")+
+  theme(
+    axis.text.y = element_text(size = 10),
+    axis.text.x = element_text(size = 10),
+    panel.grid.major.y = element_blank(),
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  ) +
+  labs(
+    title = "GO BP enrichment – STATE_GR (upregulated genes)",
+    x = "Gene ratio",
+    y = NULL
+  )
+```
+
+```{r}
+GO_terms_down <- enrichGO(
+  gene          = filtered_genes_down,
+  universe      = gene_universe,
+  OrgDb         = "org.Hs.eg.db",
+  pAdjustMethod = "BH",
+  pvalueCutoff  = 0.01,
+  qvalueCutoff  = 0.01,
+  readable      = TRUE,
+  keyType       = "SYMBOL",
+  ont           = "BP"
+)
+
+GO_terms_down_table <- as.data.frame(GO_terms_down)
+head(GO_terms_down_table, 3)
+
+
+```
+
+Blank table. 
+
+AGE
+
+```{r}
+
+gene_universe_age <- dds_results_age$gene
+
+```
+
+```{r}
+#upregulated
+filtered_genes_age <- dds_results_age %>%
+  filter(padj < 0.01 & abs(log2FoldChange) > 2) %>%
+  pull(gene)
+
+#downregulated
+filtered_genes_age_d <- dds_results_age %>%
+  filter(padj < 0.01 & abs(log2FoldChange) > -2) %>%
+  pull(gene)
+
+```
+
+```{r}
+
+GO_terms_age <- enrichGO(
+  gene          = filtered_genes_age,
+  universe      = gene_universe_age,
+  OrgDb         = "org.Hs.eg.db",
+  pAdjustMethod = "BH",
+  pvalueCutoff  = 0.01,
+  qvalueCutoff  = 0.01,
+  readable      = TRUE,
+  keyType       = "SYMBOL",
+  ont           = "BP"
+)
+
+GO_terms_age_table <- as.data.frame(GO_terms_age)
+head(GO_terms_age_table, 3)
+```
+
+```{r}
+GO_terms_aged <- enrichGO(
+  gene          = filtered_genes_age_d,
+  universe      = gene_universe_age,
+  OrgDb         = "org.Hs.eg.db",
+  pAdjustMethod = "BH",
+  pvalueCutoff  = 0.01,
+  qvalueCutoff  = 0.01,
+  readable      = TRUE,
+  keyType       = "SYMBOL",
+  ont           = "BP"
+)
+
+GO_terms_age_table <- as.data.frame(GO_terms_age)
+head(GO_terms_age_table, 3)
+```
+
+```{r}
+p4 <- dotplot(GO_terms_aged, showCategory = 10, orderBy = "p.adjust")+
+  theme(
+    axis.text.y = element_text(size = 7),
+    axis.text.x = element_text(size = 10),
+    panel.grid.major.y = element_blank(),
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  ) +
+  labs(
+    title = "GO BP enrichment – AGE_GR (downregulated genes)",
+    x = "Gene ratio",
+    y = NULL
+  )
+
+```
+
+```{r}
+p3 <- dotplot(GO_terms_age, showCategory = 10, orderBy = "p.adjust")+
+  theme(
+    axis.text.y = element_text(size = 7),
+    axis.text.x = element_text(size = 10),
+    panel.grid.major.y = element_blank(),
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  ) +
+  labs(
+    title = "GO BP enrichment – AGE_GR (upregulated genes)",
+    x = "Gene ratio",
+    y = NULL
+  )
+```
+
+Gender
+
+```{r}
+gene_universe_gender <- res_gender$gene
+```
+Downregulated
+```{r}
+
+filtered_genes_gender_down <-res_gender %>%
+  filter(padj < 0.01 & log2FoldChange < -2) %>%
+  pull(gene)
+
+```
+Upregulated
+```{r}
+filtered_genes_gender <- res_gender %>%
+  filter(padj < 0.01 & abs(log2FoldChange) > 2) %>%
+  pull(gene)
+```
+
+```{r}
+GO_terms_gender <- enrichGO(
+  gene          = filtered_genes_gender,
+  universe      = gene_universe_gender,
+  OrgDb         = "org.Hs.eg.db",
+  pAdjustMethod = "BH",
+  pvalueCutoff  = 0.01,
+  qvalueCutoff  = 0.01,
+  readable      = TRUE,
+  keyType       = "SYMBOL",
+  ont           = "BP"
+)
+
+GO_terms_gender_table <- as.data.frame(GO_terms_gender)
+head(GO_terms_gender_table, 3)
+```
+
+```{r}
+GO_terms_gender_down <- enrichGO(
+  gene          = filtered_genes_gender_down,
+  universe      = gene_universe_gender,
+  OrgDb         = "org.Hs.eg.db",
+  pAdjustMethod = "BH",
+  pvalueCutoff  = 0.01,
+  qvalueCutoff  = 0.01,
+  readable      = TRUE,
+  keyType       = "SYMBOL",
+  ont           = "BP"
+)
+
+GO_terms_gender_table <- as.data.frame(GO_terms_gender_down)
+head(GO_terms_gender_table, 3)
+```
+
+Blank table.
+
+```{r}
+p2 <- dotplot(GO_terms_gender, showCategory = 10)+
+  theme(
+    axis.text.y = element_text(size = 7),
+    axis.text.x = element_text(size = 10),
+    panel.grid.major.y = element_blank(),
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  ) +
+  labs(
+    title = "GO BP enrichment–GENDER (upregulated genes) ",
+    x = "Gene ratio",
+    y = NULL
+  )
+
+```
+
+We decided to change p adjust for 0.05 for wider range of data, and to observant new patterns
+
+```{r}
+filtered_genes_gender_2 <- res_gender %>%
+  filter(padj < 0.05 & abs(log2FoldChange) > 2) %>%
+  pull(gene)
+```
+
+```{r}
+GO_terms_gender_2 <- enrichGO(
+  gene          = filtered_genes_gender_2,
+  universe      = gene_universe_gender,
+  OrgDb         = "org.Hs.eg.db",
+  pAdjustMethod = "BH",
+  pvalueCutoff  = 0.05,
+  qvalueCutoff  = 0.05,
+  readable      = TRUE,
+  keyType       = "SYMBOL",
+  ont           = "BP"
+)
+
+GO_terms_gender_table <- as.data.frame(GO_terms_gender)
+head(GO_terms_gender_table, 3)
+```
+
+```{r}
+p1 <- dotplot(GO_terms_gender_2, showCategory = 10) +
+  theme(
+    axis.text.y = element_text(size = 7),
+    axis.text.x = element_text(size = 10),
+    panel.grid.major.y = element_blank(),
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  ) +
+  labs(
+    title = "GO BP enrichment – GENDER (upregulated genes)",
+    x = "Gene ratio",
+    y = NULL
+  )
+```
+
+```{r}
+library(cowplot)
+
+plot_grid(p1, p2, ncol = 2)
+
+
+```
+
+```{r}
+plot_grid(p5)
+```
+
